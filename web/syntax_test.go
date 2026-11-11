@@ -824,6 +824,18 @@ assert.deepEqual(credentialSavePayload(cred.kind('gitToken'), {secret: ' ghp_1 '
 assert.deepEqual(credentialSavePayload(cred.kind('codeBuddyApiKey'), {secret: '', extra: 'ioa'}), {codeBuddyApiKey: '', codeBuddyInternetEnvironment: 'ioa'});
 assert.deepEqual(credentialSavePayload(cred.kind('codeBuddyApiKey'), {secret: '', extra: ''}), {codeBuddyApiKey: '', codeBuddyInternetEnvironment: ''});
 assert.deepEqual(credentialSavePayload(cred.kind('codexApiKey'), {secret: 'sk-1'}), {codexApiKey: 'sk-1'});
+// agent CLI (dsh): models always serialize as [{id, name?}]; empty list clears custom models.
+assert.deepEqual(credentialSavePayload(cred.kind('agentCli.dsh'), {secret: 'sk-2', extra: 'http://183:8096/dsh/default', protocol: 'messages', models: 'qwen3.8-27b-coding|Qwen Coding, deepseek-v4-pro'}),
+  {agentCliCredentials: {dsh: {apiKey: 'sk-2', baseUrl: 'http://183:8096/dsh/default', protocol: 'messages', models: [{id: 'qwen3.8-27b-coding', name: 'Qwen Coding'}, {id: 'deepseek-v4-pro', name: ''}]}}});
+assert.deepEqual(credentialSavePayload(cred.kind('agentCli.dsh'), {secret: '', models: ''}),
+  {agentCliCredentials: {dsh: {models: []}}});
+assert.equal(parseCredentialModels('bad id').error.includes('模型 ID'), true, 'whitespace in model id is rejected');
+assert.deepEqual(parseCredentialModels('a,x;b|Name，c').list, [{id: 'a', name: ''}, {id: 'x', name: ''}, {id: 'b', name: 'Name'}, {id: 'c', name: ''}]);
+assert.deepEqual(parseCredentialModels('dup, dup').list, [{id: 'dup', name: ''}], 'duplicate ids collapse to the first entry');
+assert.equal(credentialModelsValue({agentCliCredentials: {dsh: {models: [{id: 'm1'}, {id: 'm2', name: '二号'}]}}}, 'dsh'), 'm1, m2|二号');
+assert.deepEqual(credentialClearPayload(cred.kind('agentCli.dsh')),
+  {agentCliCredentials: {dsh: {apiKeyClear: true, baseUrl: '', protocol: '', models: []}}});
+assert.ok(credentialEditorHTML(cred.kind('agentCli.dsh'), {...user, agentCliCredentials: {dsh: {apiKeyConfigured: true, baseUrl: 'http://183:8096/dsh/default', models: [{id: 'qwen3.8-27b-coding'}]}}}).includes('name="models"'), 'editor renders the custom model field');
 assert.deepEqual(credentialClearPayload(cred.kind('codexApiKey')), {codexApiKeyClear: true, codexBaseUrl: ''});
 assert.deepEqual(credentialClearPayload(cred.kind('claudeCodeApiKey')), {claudeCodeApiKeyClear: true, claudeCodeBaseUrl: ''});
 assert.deepEqual(credentialClearPayload(cred.kind('codeBuddyApiKey')), {codeBuddyApiKeyClear: true});
