@@ -250,6 +250,9 @@ type AgentCLICredentialUpdate struct {
 	BaseURL     *string            `json:"baseUrl"`
 	Protocol    *string            `json:"protocol"`
 	Models      *[]domain.CLIModel `json:"models"`
+	// AgentMemory team/task scope; pointer keeps "absent = unchanged".
+	TDBMTeam *string `json:"tdbmTeam"`
+	TDBMTask *string `json:"tdbmTask"`
 }
 
 func (r *UsersRepo) UpdateUserCredentials(id int64, update UserCredentialUpdate) (domain.User, error) {
@@ -376,7 +379,13 @@ func applyAgentCLICredentialUpdates(user *domain.User, updates map[string]AgentC
 			}
 			cred.Models = models
 		}
-		if cred.APIKey == "" && cred.BaseURL == "" && cred.Protocol == "" && len(cred.Models) == 0 {
+		if update.TDBMTeam != nil {
+			cred.TDBMTeam = strings.TrimSpace(*update.TDBMTeam)
+		}
+		if update.TDBMTask != nil {
+			cred.TDBMTask = strings.TrimSpace(*update.TDBMTask)
+		}
+		if cred.APIKey == "" && cred.BaseURL == "" && cred.Protocol == "" && len(cred.Models) == 0 && cred.TDBMTeam == "" && cred.TDBMTask == "" {
 			delete(merged, kind)
 			continue
 		}

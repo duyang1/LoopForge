@@ -54,6 +54,10 @@ type ProviderCredential struct {
 	APIKey   string
 	BaseURL  string
 	Protocol string
+	// TDBMTeam / TDBMTask carry the per-user AgentMemory binding scope for
+	// dsh; other CLI kinds leave them empty.
+	TDBMTeam string
+	TDBMTask string
 }
 
 type InvocationOptions struct {

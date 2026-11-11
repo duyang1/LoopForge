@@ -74,6 +74,10 @@ func (p agentCLIProvider) Prepare(in providerInvocation) (CommandSpec, error) {
 	command.CredentialBindings = []CredentialBinding{BindAgentCLI, BindGit, BindMCP}
 	command.PrivateHome = true
 	command.PrivateHomeKey = AgentCLIPrivateHomeKey(p.kind, in.Compiled.AgentID)
+	// Bind SOP nodes to their AgentMemory role: dsh forwards this as the
+	// x-agent-id header so each node maps to its own team agent instead of the
+	// account default. The role ID doubles as the AgentMemory agent name.
+	command.AgentCLI.TDBMAgent = in.Compiled.AgentID
 	return command, nil
 }
 

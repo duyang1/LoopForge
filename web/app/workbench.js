@@ -144,6 +144,16 @@ function parseCredentialModels(text){
 function credentialModelsFieldHTML(value,hint=''){
   return credentialFieldHTML({label:'自定义模型',note:'选填 · 自部署 / 代理模型的模型名',name:'models',type:'text',value,placeholder:'多个用逗号分隔，如 qwen3.8-27b-coding，可写 id|显示名',hint});
 }
+// ---- AgentMemory (TDBM) team/task 绑定（仅 dsh，Base URL 指向记忆代理时用） ----
+function credentialTDBMValue(user,cli,field){return user?.agentCliCredentials?.[cli]?.[field]||''}
+function credentialTDBMFieldsHTML(kind,user,note){
+  if(!kind?.agentCli||kind.agentCli!=='dsh')return '';
+  return credentialTDBMFieldsFromValues(credentialTDBMValue(user,kind.agentCli,'tdbmTeam'),credentialTDBMValue(user,kind.agentCli,'tdbmTask'),note);
+}
+function credentialTDBMFieldsFromValues(team,task,note){
+  return credentialFieldHTML({label:'AgentMemory 团队',note:note||'选填 · 记忆面板的团队名或 ID',name:'tdbmTeam',type:'text',value:team,placeholder:'如 LoopForge',hint:'留空用平台默认团队'})
+    +credentialFieldHTML({label:'AgentMemory 任务',note:'选填 · 任务名或 ID（ASCII）',name:'tdbmTask',type:'text',value:task,placeholder:'如 LoopForge SOP 通用任务',hint:'留空用账户默认/不按任务隔离'});
+}
 // Platform features depend on these, in the order people should configure them.
 const CREDENTIAL_RECOMMENDED=['gitToken','codeBuddyApiKey'];
 const CREDENTIAL_PAT_WARNING='请填写 GitHub <b>个人访问令牌（PAT）</b>，为目标仓库授予 <b>Contents</b> 和 <b>Pull requests</b> 的读写权限；少勾权限会导致克隆 / 推送仓库失败。';
@@ -206,6 +216,8 @@ function credentialSavePayload(kind,values={}){
     if(kind.extra&&values.extra!==undefined)entry.baseUrl=String(values.extra||'').trim();
     if(kind.protocol&&values.protocol!==undefined)entry.protocol=values.protocol;
     if(values.models!==undefined)entry.models=parseCredentialModels(values.models).list;
+    if(values.tdbmTeam!==undefined)entry.tdbmTeam=String(values.tdbmTeam||'').trim();
+    if(values.tdbmTask!==undefined)entry.tdbmTask=String(values.tdbmTask||'').trim();
     return {agentCliCredentials:{[kind.agentCli]:entry}};
   }
   const payload={[kind.key]:String(values.secret||'').trim()};
@@ -213,7 +225,7 @@ function credentialSavePayload(kind,values={}){
   return payload;
 }
 function credentialClearPayload(kind){
-  if(kind.agentCli)return {agentCliCredentials:{[kind.agentCli]:{apiKeyClear:true,baseUrl:'',protocol:'',models:[]}}};
+  if(kind.agentCli)return {agentCliCredentials:{[kind.agentCli]:{apiKeyClear:true,baseUrl:'',protocol:'',models:[],tdbmTeam:'',tdbmTask:''}}};
   const payload={[kind.key+'Clear']:true};
   if(kind.extra?.clearWithKey)payload[kind.extra.name]='';
   return payload;
@@ -311,12 +323,16 @@ function credentialEditorHTML(kind,user){
   const protocolField=kind.protocol?credentialProtocolHTML(kind,credentialProtocol(kind,user)):'';
   const modelsOriginal=kind.agentCli?credentialModelsValue(user,kind.agentCli):'';
   const modelsField=kind.agentCli?credentialModelsFieldHTML(modelsOriginal,'填写后模型下拉列表使用这些模型（仅配置 Base URL 时生效）；留空按 Base URL 自动发现，再回落内置列表。'):'';
+  const tdbmTeamOriginal=kind.agentCli?credentialTDBMValue(user,kind.agentCli,'tdbmTeam'):'';
+  const tdbmTaskOriginal=kind.agentCli?credentialTDBMValue(user,kind.agentCli,'tdbmTask'):'';
+  const tdbmFields=credentialTDBMFieldsHTML(kind,user);
   const legacy=!!(kind.extra?.options&&codeBuddyEnvironmentLegacy(user[kind.extra.name]));
-  return `<div class="credential-editor-form"${kind.extra?` data-original="${escapeHTML(extraValue)}"`:''}${kind.agentCli?` data-models="${escapeHTML(modelsOriginal)}"`:''}${legacy?' data-legacy="true"':''}>
+  return `<div class="credential-editor-form"${kind.extra?` data-original="${escapeHTML(extraValue)}"`:''}${kind.agentCli?` data-models="${escapeHTML(modelsOriginal)}" data-tdbm-team="${escapeHTML(tdbmTeamOriginal)}" data-tdbm-task="${escapeHTML(tdbmTaskOriginal)}"`:''}${legacy?' data-legacy="true"':''}>
     ${credentialFieldHTML({label:kind.short,note:'已配置 · 留空则不改',name:'secret',placeholder:'输入新值以替换',hint:kind.hint||''})}
     ${extraField}
     ${protocolField}
     ${modelsField}
+    ${tdbmFields}
     <div class="credential-swap">
       <div class="credential-editor-foot" data-credential-pane="foot"><button type="button" class="credential-btn ghost danger credential-ink" data-credential-act="delete">${credentialGlyph('trash',14)}<span>删除</span></button><div><button type="button" class="credential-btn ghost credential-ink" data-credential-act="cancel">取消</button><button type="button" class="credential-btn primary credential-ink" data-credential-act="save"${legacy?'':' disabled'}>保存</button></div></div>
       <div class="credential-confirm is-off" data-credential-pane="confirm" role="alert"><div>删除 <b>${escapeHTML(kind.short)}</b>？${escapeHTML(kind.impact)}</div><button type="button" class="credential-btn ghost credential-ink" data-credential-act="undelete">取消</button><button type="button" class="credential-btn danger-solid credential-ink" data-credential-act="confirm-delete">删除</button></div>
@@ -408,6 +424,8 @@ function resetCredentialEditor(row){
   const extra=form.querySelector('[name="extra"]');if(extra)extra.value=form.dataset.original||'';
   if(extra?.tagName==='SELECT')refreshCredentialEnvironmentLinks(form,extra.value);
   const models=form.querySelector('input[name="models"]');if(models)models.value=form.dataset.models||'';
+  const tdbmTeam=form.querySelector('input[name="tdbmTeam"]');if(tdbmTeam)tdbmTeam.value=form.dataset.tdbmTeam||'';
+  const tdbmTask=form.querySelector('input[name="tdbmTask"]');if(tdbmTask)tdbmTask.value=form.dataset.tdbmTask||'';
   if(row.dataset.credentialRow==='gitToken'){
     const line=form.querySelector('[data-git-verify-line]');if(line){line.classList.remove('is-err');line.innerHTML=''}
     setCredentialHint(form,'secret',GIT_TOKEN_REPLACE_HINT);
@@ -431,8 +449,9 @@ function showCredentialPane(row,name,focus=CREDENTIAL_PANE_FOCUS[name]){
   if(focus)setTimeout(()=>target.querySelector(focus)?.focus({preventScroll:true}),60);
 }
 function updateCredentialEditorDirty(form){
-  const secret=form.querySelector('input[name="secret"]')?.value.trim()||'',extra=form.querySelector('[name="extra"]'),models=form.querySelector('input[name="models"]'),save=form.querySelector('[data-credential-act="save"]');
-  if(save&&!save.dataset.busy)save.disabled=!secret&&!form.dataset.legacy&&!(extra&&extra.value.trim()!==(form.dataset.original||''))&&!(models&&models.value.trim()!==(form.dataset.models||''));
+  const secret=form.querySelector('input[name="secret"]')?.value.trim()||'',extra=form.querySelector('[name="extra"]'),models=form.querySelector('input[name="models"]'),tdbmTeam=form.querySelector('input[name="tdbmTeam"]'),tdbmTask=form.querySelector('input[name="tdbmTask"]'),save=form.querySelector('[data-credential-act="save"]');
+  const tdbmDirty=(tdbmTeam&&tdbmTeam.value.trim()!==(form.dataset.tdbmTeam||''))||(tdbmTask&&tdbmTask.value.trim()!==(form.dataset.tdbmTask||''));
+  if(save&&!save.dataset.busy)save.disabled=!secret&&!form.dataset.legacy&&!(extra&&extra.value.trim()!==(form.dataset.original||''))&&!(models&&models.value.trim()!==(form.dataset.models||''))&&!tdbmDirty;
 }
 function setCredentialHint(scope,name,text,tone=''){
   const hint=scope.querySelector(`[data-credential-hint="${name}"]`),box=scope.querySelector(`input[name="${name}"]`)?.closest('.credential-input');
@@ -499,7 +518,7 @@ function credentialSaved(key,message){
 }
 async function submitCredentialEditor(row,button){
   const key=row.dataset.credentialRow,kind=credentialKind(key),form=row.querySelector('.credential-editor-form');
-  const secret=form.querySelector('input[name="secret"]').value.trim(),extra=form.querySelector('[name="extra"]'),protocol=form.querySelector('[name="protocol"]'),models=form.querySelector('input[name="models"]');
+  const secret=form.querySelector('input[name="secret"]').value.trim(),extra=form.querySelector('[name="extra"]'),protocol=form.querySelector('[name="protocol"]'),models=form.querySelector('input[name="models"]'),tdbmTeam=form.querySelector('input[name="tdbmTeam"]'),tdbmTask=form.querySelector('input[name="tdbmTask"]');
   const secretError=credentialSecretError(kind,secret),extraError=extra?credentialExtraError(kind,extra.value,protocol?.value):'';
   if(secretError){setCredentialHint(form,'secret',secretError,'err');return}
   if(extraError){toast(extraError,'err');extra.focus();return}
@@ -518,7 +537,7 @@ async function submitCredentialEditor(row,button){
       credentialSaved(key,'Git Token 校验通过，已保存');
       return;
     }
-    await saveCredential(key,{secret,...(extra?{extra:extra.value}:{}),...(protocol?{protocol:protocol.value}:{}),...(models?{models:models.value}:{})});
+    await saveCredential(key,{secret,...(extra?{extra:extra.value}:{}),...(protocol?{protocol:protocol.value}:{}),...(models?{models:models.value}:{}),...(tdbmTeam?{tdbmTeam:tdbmTeam.value}:{}),...(tdbmTask?{tdbmTask:tdbmTask.value}:{})});
     credentialSaved(key,`${kind.short} 已保存`);
   }catch(err){toast(err.message,'err');setCredentialButtonBusy(button,'')}
 }
@@ -621,7 +640,7 @@ function openCredentialWizard(key){
   const kind=preset||CREDENTIAL_RECOMMENDED.map(credentialKind).find(k=>!credentialConfigured(k,user))||CREDENTIAL_KINDS.find(k=>!credentialConfigured(k,user))||null;
   if(credentialWizard)closeCredentialWizard(true);
   credentialUI().open&&toggleCredentialRow(credentialUI().open,false);
-  credentialWizard={step:preset?2:1,kind:kind?.key||null,direct:!!preset,secret:'',extra:credentialWizardDefaults(kind,user),protocol:credentialProtocol(kind||{},user),models:kind?.agentCli?credentialModelsValue(user,kind.agentCli):'',saving:false,error:'',done:false,guide:{},returnFocus:document.activeElement};
+  credentialWizard={step:preset?2:1,kind:kind?.key||null,direct:!!preset,secret:'',extra:credentialWizardDefaults(kind,user),protocol:credentialProtocol(kind||{},user),models:kind?.agentCli?credentialModelsValue(user,kind.agentCli):'',tdbmTeam:credentialTDBMValue(user,kind?.agentCli,'tdbmTeam'),tdbmTask:credentialTDBMValue(user,kind?.agentCli,'tdbmTask'),saving:false,error:'',done:false,guide:{},returnFocus:document.activeElement};
   let scrim=$('#credentialWizard');
   if(scrim?.closeTimer){clearTimeout(scrim.closeTimer);scrim.closeTimer=0}
   if(!scrim){
@@ -694,9 +713,10 @@ function credentialWizardStepTwoHTML(kind){
     :credentialFieldHTML({label:kind.extra.label,note:kind.extra.note||(kind.extra.url?'可选 · 留空使用官方地址':''),name:'extra',type:kind.extra.url?'url':'text',value:wizard.extra,placeholder:kind.extra.placeholder,hint:''});
   const protocolField=kind.protocol?credentialProtocolHTML(kind,wizard.protocol||credentialProtocol(kind,{})):'';
   const modelsField=kind.agentCli?credentialModelsFieldHTML(wizard.models||'','自部署 / 代理服务可在这里写模型名，多个用逗号分隔；留空按 Base URL 自动发现。'):'';
+  const tdbmFields=kind.agentCli==='dsh'?credentialTDBMFieldsFromValues(wizard.tdbmTeam||'',wizard.tdbmTask||''):'';
   // The network environment decides where the key comes from, so it is chosen first.
   return `<div class="credential-question">${credentialLogo(kind,'is-mini')}<span>${github?'使用访问令牌':'配置 '+escapeHTML(kind.short)}</span><small class="credential-description">${escapeHTML(kind.description)}</small></div>${methods}<ol class="credential-guide">${guide}</ol><div class="credential-fields">
-    ${kind.extra?.options?extraField+secretField:secretField+extraField+protocolField+modelsField}
+    ${kind.extra?.options?extraField+secretField:secretField+extraField+protocolField+modelsField+tdbmFields}
   </div>`;
 }
 function credentialWizardStepThreeHTML(kind){
@@ -705,12 +725,13 @@ function credentialWizardStepThreeHTML(kind){
   const extra=kind.extra?`<dt>${escapeHTML(kind.extra.label)}</dt><dd${kind.extra.url?' class="credential-mono"':''}>${escapeHTML(credentialExtraLabel(kind,wizard.extra))}</dd>`:'';
   const modelsParsed=parseCredentialModels(wizard.models||'');
   const modelsSummary=modelsParsed.list.length?`<dt>自定义模型</dt><dd class="credential-mono">${escapeHTML(modelsParsed.list.slice(0,5).map(m=>m.name||m.id).join('、'))}${modelsParsed.list.length>5?` 等 ${modelsParsed.list.length} 个`:''}</dd>`:'';
+  const tdbmSummary=kind.agentCli==='dsh'&&(wizard.tdbmTeam||wizard.tdbmTask)?`<dt>AgentMemory</dt><dd class="credential-mono">${escapeHTML([wizard.tdbmTeam,wizard.tdbmTask].filter(Boolean).join(' / '))}</dd>`:'';
   const warning=credentialSecretWarning(kind,wizard.secret);
   const line=wizard.error?`<p class="credential-vline is-err" role="alert">${credentialGlyph('alert',13)}${escapeHTML(wizard.error)}</p>`
     :wizard.saving&&kind.key==='gitToken'?`<p class="credential-vline is-info" role="status">${credentialSpinner(13)}正在校验令牌有效性与权限…</p>`
     :kind.key==='gitToken'?`<p class="credential-vline git-token-verify-status">${credentialGlyph('lock',13)}保存前会先校验令牌有效性与权限</p>`
     :warning?`<p class="credential-vline is-warn" role="status">${credentialGlyph('alert',13)}${escapeHTML(warning)}</p>`:'';
-  return `<div class="credential-question">${credentialGlyph('check',16)}<span>确认并保存</span><small>密钥只在任务运行时注入，不写入 Agent 资产</small></div><div class="credential-summary"><div>${credentialGlyph('key',14)}${escapeHTML(kind.name)}</div><dl><dt>凭证</dt><dd>${escapeHTML(kind.short)}</dd><dt>密钥</dt><dd class="credential-mask">已填写 ••••••••</dd>${extra}${modelsSummary}<dt>生效</dt><dd>下一次任务</dd></dl></div>${line}`;
+  return `<div class="credential-question">${credentialGlyph('check',16)}<span>确认并保存</span><small>密钥只在任务运行时注入，不写入 Agent 资产</small></div><div class="credential-summary"><div>${credentialGlyph('key',14)}${escapeHTML(kind.name)}</div><dl><dt>凭证</dt><dd>${escapeHTML(kind.short)}</dd><dt>密钥</dt><dd class="credential-mask">已填写 ••••••••</dd>${extra}${modelsSummary}${tdbmSummary}<dt>生效</dt><dd>下一次任务</dd></dl></div>${line}`;
 }
 function credentialWizardFootHTML(){
   const wizard=credentialWizard;
@@ -784,6 +805,8 @@ function credentialWizardInput(event){
   if(input.name==='protocol')wizard.protocol=input.value;
   if(input.name==='secret')wizard.secret=input.value;
   if(input.name==='models'){wizard.models=input.value;const modelsError=parseCredentialModels(input.value).error;setCredentialHint(pane,'models',modelsError,modelsError?'err':'')}
+  if(input.name==='tdbmTeam')wizard.tdbmTeam=input.value;
+  if(input.name==='tdbmTask')wizard.tdbmTask=input.value;
   const valid=credentialWizardValid(),hint=credentialWizardSecretHint(kind,wizard,valid);
   setCredentialHint(pane,'secret',hint.text,hint.tone);
   if(kind.extra?.options){if(input.name==='extra')refreshCredentialEnvironmentLinks(pane,wizard.extra)}
@@ -810,6 +833,8 @@ function selectCredentialWizardKind(key){
   wizard.extra=credentialWizardDefaults(credentialKind(key),credentialUser());
   wizard.protocol=credentialProtocol(credentialKind(key),credentialUser());
   wizard.models=credentialKind(key)?.agentCli?credentialModelsValue(credentialUser(),credentialKind(key).agentCli):'';
+  wizard.tdbmTeam=credentialTDBMValue(credentialUser(),credentialKind(key)?.agentCli,'tdbmTeam');
+  wizard.tdbmTask=credentialTDBMValue(credentialUser(),credentialKind(key)?.agentCli,'tdbmTask');
 }
 function credentialWizardClick(event){
   const wizard=credentialWizard,target=event.target;if(!wizard)return;
@@ -844,7 +869,7 @@ async function advanceCredentialWizard(){
     if(kind.key==='gitToken'){
       const outcome=await verifyAndSaveGitToken(secret);
       if(!outcome.saved){wizard.error=`${gitTokenFailure(outcome.result)||'Git Token 校验未通过'}（未保存）`;return}
-    }else await saveCredential(kind.key,{secret,...(kind.extra?{extra:wizard.extra}:{}),...(kind.protocol?{protocol:wizard.protocol}:{}),...(kind.agentCli?{models:wizard.models}:{})});
+    }else await saveCredential(kind.key,{secret,...(kind.extra?{extra:wizard.extra}:{}),...(kind.protocol?{protocol:wizard.protocol}:{}),...(kind.agentCli?{models:wizard.models}:{}),...(kind.agentCli==='dsh'?{tdbmTeam:wizard.tdbmTeam,tdbmTask:wizard.tdbmTask}:{})});
     wizard.done=true;wizard.secret='';
     renderCredentialPanel();
     toast(kind.key==='gitToken'?'Git Token 校验通过，已保存':`${kind.short} 已保存`,'ok');

@@ -107,6 +107,14 @@ type AgentCLICredential struct {
 	BaseURL          string     `json:"baseUrl,omitempty"`
 	Protocol         string     `json:"protocol,omitempty"`
 	Models           []CLIModel `json:"models,omitempty"`
+	// TDBMTeam / TDBMTask scope the AgentMemory (TencentDB-Agent-Memory) team
+	// and task this user's agent runs bind to when the Base URL points at a
+	// memory proxy. They are per-user settings (a team name/ID and task
+	// name/ID); the per-node agent identity is derived from the role ID by the
+	// runtime. Empty falls back to the platform-wide AGENTFLOW_TDBM_TEAM/TASK
+	// deployment defaults, then to the user's panel default binding.
+	TDBMTeam string `json:"tdbmTeam,omitempty"`
+	TDBMTask string `json:"tdbmTask,omitempty"`
 }
 
 // Wire protocols an agent CLI can speak to a user Base URL.

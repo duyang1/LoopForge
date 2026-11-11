@@ -82,6 +82,11 @@ type AgentCLIOptions struct {
 	SystemPromptFile string
 	// ReadOnly is AgentCLICommandOptions.Chat.
 	ReadOnly bool
+	// TDBMAgent names the AgentMemory (TencentDB-Agent-Memory) agent this
+	// invocation represents — conventionally the LoopForge role ID. The dsh
+	// adapter forwards it as an identity header so the memory proxy binds the
+	// session to the matching team/agent/task instead of the account default.
+	TDBMAgent string
 }
 
 // agentCLIKeyEnv holds the user's key for CLIs whose configuration names
@@ -358,6 +363,22 @@ func ApplyAgentCLICredential(kind string, cred ProviderCredential, options Agent
 			if model != "" {
 				patch = append(patch, map[string]any{"id": "agent-default-model", "config": map[string]any{"provider": "deepseek-official", "model": model}})
 			}
+		} else if protocol == AgentCLIProtocolMessages {
+			// Anthropic Messages protocol: use the native api-key adapter so dsh
+			// sends x-deepseek-harness-* headers (session identity for proxies
+			// such as TencentDB-Agent-Memory). The adapter appends /v1/messages
+			// itself, so any /v1 suffix in baseURL must be stripped. The generic
+			// llm-pi-ai adapter strips those headers, which makes proxy-side
+			// session-init/memory injection impossible.
+			trimmed := strings.TrimSuffix(strings.TrimSuffix(baseURL, "/v1/messages"), "/v1")
+			env[agentCLIKeyEnv] = key
+			patch = []any{
+				map[string]any{"id": "llm-deepseek", "name": "@deepseek-ai/dsh-llm-deepseek-api-key", "config": map[string]any{
+					"apiKeyEnv": agentCLIKeyEnv, "baseURL": trimmed,
+					"models": []map[string]any{{"id": model}},
+				}},
+				map[string]any{"id": "agent-default-model", "config": map[string]any{"provider": "deepseek-official", "model": model}},
+			}
 		} else {
 			api := map[string]string{AgentCLIProtocolChat: "openai-completions", AgentCLIProtocolResponses: "openai-responses", AgentCLIProtocolMessages: "anthropic-messages"}[protocol]
 			env[agentCLIKeyEnv] = key
@@ -374,6 +395,20 @@ func ApplyAgentCLICredential(kind string, cred ProviderCredential, options Agent
 			return nil, nil, err
 		}
 		env["DSH_HOME"] = homeEnv + "/.dsh"
+		// AgentMemory identity: the dsh adapter forwards these as x-team-id /
+		// x-agent-id / x-task-id headers so the memory proxy binds the session
+		// to the right team/agent/task. Agent (role ID) is per-node; team and
+		// task come from the user's credential settings first, then the
+		// platform-wide AGENTFLOW_TDBM_TEAM/TASK deployment defaults.
+		if agent := strings.TrimSpace(options.TDBMAgent); agent != "" {
+			env["TDBM_AGENT_ID"] = agent
+		}
+		if team := strings.TrimSpace(firstNonEmpty(cred.TDBMTeam, os.Getenv("AGENTFLOW_TDBM_TEAM"))); team != "" {
+			env["TDBM_TEAM_ID"] = team
+		}
+		if task := strings.TrimSpace(firstNonEmpty(cred.TDBMTask, os.Getenv("AGENTFLOW_TDBM_TASK"))); task != "" {
+			env["TDBM_TASK_ID"] = task
+		}
 		// Launcher flags precede the profile's own arguments: dsh --profile <name> --patch … app-args.
 		if len(argv) < 3 {
 			return nil, nil, errors.New("invalid DeepSeek Harness invocation")
@@ -410,7 +445,7 @@ func AgentCLIUserCredentials(user domain.User) map[string]ProviderCredential {
 	}
 	out := make(map[string]ProviderCredential, len(user.AgentCLICredentials))
 	for kind, cred := range user.AgentCLICredentials {
-		out[kind] = ProviderCredential{APIKey: cred.APIKey, BaseURL: cred.BaseURL, Protocol: cred.Protocol}
+		out[kind] = ProviderCredential{APIKey: cred.APIKey, BaseURL: cred.BaseURL, Protocol: cred.Protocol, TDBMTeam: cred.TDBMTeam, TDBMTask: cred.TDBMTask}
 	}
 	return out
 }
